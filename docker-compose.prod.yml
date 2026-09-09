@@ -1,4 +1,5 @@
-version: "3.8"
+# 오라클 VM 배포용. api는 호스트 포트를 열지 않고 caddy 뒤에만 붙는다.
+name: duksungmap
 
 services:
   api:
@@ -7,20 +8,79 @@ services:
     restart: unless-stopped
     env_file:
       - .env
-    ports:
-      - "8080:8080"
+    # 같은 compose 네트워크 안이라 호스트/포트는 서비스 이름으로 고정한다.
+    # env_file보다 environment가 우선이므로 .env에 옛 RDS 주소가 남아 있어도 안전하다.
+    environment:
+      DB_HOST: mysql
+      DB_PORT: "3306"
+      REDIS_HOST: redis
+      REDIS_PORT: "6379"
+      COOKIE_SECURE: "true"
+    expose:
+      - "8080"
+    mem_limit: 2g
     depends_on:
-      - redis
+      mysql:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+  mysql:
+    image: mysql:8.0
+    container_name: duksungmap_mysql
+    restart: unless-stopped
+    environment:
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD}
+      MYSQL_DATABASE: ${DB_NAME}
+      MYSQL_USER: ${DB_USER}
+      MYSQL_PASSWORD: ${DB_PASSWORD}
+      TZ: Asia/Seoul
+    command: >
+      --character-set-server=utf8mb4
+      --collation-server=utf8mb4_unicode_ci
+    volumes:
+      - duksungmap_mysql_data:/var/lib/mysql
+    mem_limit: 1g
+    healthcheck:
+      test: ["CMD-SHELL", "mysqladmin ping -h 127.0.0.1 -u root -p\"$$MYSQL_ROOT_PASSWORD\" --silent"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 40s
 
   redis:
     image: redis:7
     container_name: duksungmap_redis
     restart: unless-stopped
-    expose:
-      - "6379"
+    command: ["redis-server", "--appendonly", "yes"]
     volumes:
       - duksungmap_redis_data:/data
-    command: ["redis-server", "--appendonly", "yes"]
+    mem_limit: 256m
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+
+  # cookie-secure=true(SameSite=None)라 HTTPS가 필수다.
+  # Caddy가 Let's Encrypt 발급/갱신을 알아서 처리한다.
+  caddy:
+    image: caddy:2
+    container_name: duksungmap_caddy
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - duksungmap_caddy_data:/data
+      - duksungmap_caddy_config:/config
+    mem_limit: 256m
+    depends_on:
+      - api
 
 volumes:
+  duksungmap_mysql_data:
   duksungmap_redis_data:
+  duksungmap_caddy_data:
+  duksungmap_caddy_config:

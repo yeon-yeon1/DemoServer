@@ -1,4 +1,4 @@
-name: CI/CD Deploy to EC2
+name: CI/CD Deploy
 
 on:
   push:
@@ -48,12 +48,14 @@ jobs:
             type=raw,value=latest
             type=sha,format=short
 
-      - name: Build & Push (linux/amd64)
+      # 오라클 Ampere(Always Free 24GB)는 arm64라 amd64 이미지가 돌지 않는다.
+      # Dockerfile이 JAR을 COPY만 하므로 두 아키텍처 모두 RUN 없이 빌드된다.
+      - name: Build & Push (amd64 + arm64)
         uses: docker/build-push-action@v6
         with:
           context: .
           push: true
-          platforms: linux/amd64
+          platforms: linux/amd64,linux/arm64
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
           cache-from: type=gha
@@ -63,28 +65,45 @@ jobs:
     runs-on: ubuntu-latest
     needs: build-and-push
     steps:
-      - name: Deploy to EC2 via SSH
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      # 서버에 손으로 둔 compose 파일이 레포와 어긋나는 걸 막는다.
+      # .env는 건드리지 않으므로 서버의 비밀값은 그대로 유지된다.
+      - name: Sync deploy files to server
+        uses: appleboy/scp-action@v0.1.7
+        with:
+          host: ${{ secrets.DEPLOY_HOST }}
+          username: ${{ secrets.DEPLOY_USER }}
+          key: ${{ secrets.DEPLOY_SSH_KEY }}
+          source: "docker-compose.prod.yml,Caddyfile,scripts/backup-mysql.sh"
+          target: ${{ secrets.DEPLOY_APP_DIR }}
+
+      - name: Deploy via SSH
         uses: appleboy/ssh-action@v1.2.0
         with:
-          host: ${{ secrets.EC2_HOST }}
-          username: ${{ secrets.EC2_USER }}
-          key: ${{ secrets.EC2_SSH_KEY }}
+          host: ${{ secrets.DEPLOY_HOST }}
+          username: ${{ secrets.DEPLOY_USER }}
+          key: ${{ secrets.DEPLOY_SSH_KEY }}
           script: |
             set -e
-            cd ${{ secrets.EC2_APP_DIR }}
+            cd ${{ secrets.DEPLOY_APP_DIR }}
 
-            # 최신 이미지 pull
-            sudo docker pull ${{ env.IMAGE_NAME }}:latest
+            chmod +x scripts/backup-mysql.sh
 
-            # compose v2 우선 사용, 없으면 fallback
-            if sudo docker compose version >/dev/null 2>&1; then
-              sudo docker compose -f docker-compose.yml up -d --pull always --remove-orphans
-            else
-              sudo docker-compose -f docker-compose.yml up -d
-            fi
+            sudo docker compose -f docker-compose.prod.yml pull
+            sudo docker compose -f docker-compose.prod.yml up -d --remove-orphans
 
-            # 오래된 이미지 정리(선택)
             sudo docker image prune -f
 
-            # 상태 확인
-            sudo docker ps
+            # api가 healthy로 올라올 때까지 최대 3분 기다린다.
+            # 여기서 실패하면 Actions가 빨간불이 되므로 배포 사고를 놓치지 않는다.
+            for i in $(seq 1 36); do
+              status=$(sudo docker inspect -f '{{.State.Health.Status}}' duksungmap_api 2>/dev/null || echo starting)
+              [ "$status" = "healthy" ] && echo "api healthy" && exit 0
+              sleep 5
+            done
+
+            echo "api가 healthy 상태로 올라오지 못했습니다"
+            sudo docker compose -f docker-compose.prod.yml logs --tail=100 api
+            exit 1

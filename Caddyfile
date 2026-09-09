@@ -1,0 +1,4 @@
+api.duksung-map.site {
+	encode zstd gzip
+	reverse_proxy api:8080
+}
