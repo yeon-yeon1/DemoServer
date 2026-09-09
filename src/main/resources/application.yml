@@ -44,7 +44,10 @@ app:
     rate-limit:
       resend-cooldown-seconds: 60
       max-sends-per-email-daily: 5
-      max-sends-per-ip-hourly: 10
+      # 교내 와이파이는 NAT라 수백 명이 공인 IP 하나를 공유하고, Vercel 프록시를
+      # 거치면서 IP가 더 뭉칠 수도 있다. 정상 사용자를 막지 않도록 느슨하게 두고,
+      # 실질적인 상한은 아래 전역 한도가 담당한다.
+      max-sends-per-ip-hourly: 100
       # SMTP 일일 할당량보다 낮게 잡아 계정이 잠기는 상황을 막는다.
       max-sends-global-daily: 400
       max-verify-attempts: 5

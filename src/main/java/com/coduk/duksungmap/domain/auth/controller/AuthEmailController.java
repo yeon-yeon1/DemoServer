@@ -83,8 +83,13 @@ public class AuthEmailController {
     }
 
     /**
-     * Vercel 프록시와 리버스 프록시를 거쳐 오므로 getRemoteAddr()는 프록시 IP가 된다.
-     * X-Forwarded-For는 클라이언트가 위조할 수 있어 IP 한도는 보조 수단으로만 쓴다.
+     * Vercel 프록시와 Caddy를 거쳐 오므로 getRemoteAddr()는 프록시 IP다. 맨 앞 항목이
+     * Vercel이 기록한 실제 클라이언트 IP다.
+     *
+     * <p>오리진(api.duksung-map.site)을 직접 때리면 이 헤더를 위조할 수 있으므로 IP 한도는
+     * 보조 수단일 뿐이고, 실질적인 상한은 이메일당/전역 발송 한도가 담당한다. 반대로 Caddy에서
+     * {@code header_up X-Forwarded-For {remote_host}} 로 덮어쓰면 위조는 막히지만 모든
+     * 사용자가 Vercel IP 하나로 합쳐져 정상 트래픽이 차단되므로 그렇게 하면 안 된다.
      */
     private String clientIp(HttpServletRequest request) {
         String forwarded = request.getHeader("X-Forwarded-For");
