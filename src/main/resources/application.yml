@@ -41,6 +41,13 @@ app:
     refresh-ttl-days: 30
     access-ttl-minutes: 15
     refresh-cookie-name: refresh_token
+    rate-limit:
+      resend-cooldown-seconds: 60
+      max-sends-per-email-daily: 5
+      max-sends-per-ip-hourly: 10
+      # SMTP 일일 할당량보다 낮게 잡아 계정이 잠기는 상황을 막는다.
+      max-sends-global-daily: 400
+      max-verify-attempts: 5
     cookie-secure: ${COOKIE_SECURE:false}
   jwt:
     secret: ${JWT_SECRET}

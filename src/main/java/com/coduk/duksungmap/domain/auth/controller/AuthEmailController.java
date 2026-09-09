@@ -9,6 +9,7 @@ import com.coduk.duksungmap.global.response.SuccessCode;
 import com.coduk.duksungmap.global.security.JwtProvider;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
+import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
@@ -33,11 +34,15 @@ public class AuthEmailController {
             description = """
                 덕성여대 이메일(@duksung.ac.kr)로 6자리 인증 코드를 발송합니다.
                 - 인증 코드는 5분 동안만 유효합니다.
+                - 재발송은 60초 쿨다운이 있으며, 이메일/IP/전체 단위 발송 한도가 적용됩니다.
                 """
     )
     @PostMapping("/send")
-    public ResponseEntity<ApiResponse<SendCodeResponse>> sendCode(@RequestBody @Valid SendCodeRequest req) {
-        long ttl = authEmailService.sendCode(req.duksungId());
+    public ResponseEntity<ApiResponse<SendCodeResponse>> sendCode(
+            @RequestBody @Valid SendCodeRequest req,
+            HttpServletRequest request
+    ) {
+        long ttl = authEmailService.sendCode(req.duksungId(), clientIp(request));
 
         return ResponseEntity
                 .status(SuccessCode.OK.getHttpStatus())
@@ -52,6 +57,7 @@ public class AuthEmailController {
                 - Access Token을 반환합니다.
                 - Refresh Token은 HttpOnly 쿠키로 설정됩니다.
                 - X-Device-Id 헤더를 통해 디바이스를 구분합니다.
+                - 코드 입력은 5회까지만 시도할 수 있고, 초과하면 코드가 폐기됩니다.
                 """
     )
     @PostMapping("/verify")
@@ -74,5 +80,17 @@ public class AuthEmailController {
         return ResponseEntity
                 .status(SuccessCode.OK.getHttpStatus())
                 .body(ApiResponse.onSuccess(new VerifyCodeResponse(accessToken), SuccessCode.OK));
+    }
+
+    /**
+     * Vercel 프록시와 리버스 프록시를 거쳐 오므로 getRemoteAddr()는 프록시 IP가 된다.
+     * X-Forwarded-For는 클라이언트가 위조할 수 있어 IP 한도는 보조 수단으로만 쓴다.
+     */
+    private String clientIp(HttpServletRequest request) {
+        String forwarded = request.getHeader("X-Forwarded-For");
+        if (forwarded != null && !forwarded.isBlank()) {
+            return forwarded.split(",")[0].trim();
+        }
+        return request.getRemoteAddr();
     }
 }
