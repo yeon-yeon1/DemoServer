@@ -19,6 +19,7 @@ public class AuthEmailService {
     private final EmailService emailService;
     private final EmailVerificationStore store;
     private final UserRepository userRepository;
+    private final AuthRateLimiter rateLimiter;
 
     @Value("${app.auth.email-domain}")
     private String emailDomain;
@@ -28,12 +29,16 @@ public class AuthEmailService {
 
     private final SecureRandom random = new SecureRandom();
 
-    public long sendCode(String duksungId) {
+    public long sendCode(String duksungId, String clientIp) {
         String normalized = normalize(duksungId);
         String email = normalized + "@" + emailDomain;
 
+        // 형식 검증을 통과한 뒤에 한도를 소모한다. 오타 한 번에 쿨다운이 걸리지 않도록.
+        rateLimiter.guardSend(email, clientIp);
+
         String code = generate6Digits();
         store.save(email, code, ttlSeconds);
+        rateLimiter.resetVerifyAttempts(email);
         emailService.send(email, code);
 
         return ttlSeconds;
@@ -46,9 +51,17 @@ public class AuthEmailService {
 
         String saved = store.get(email);
         if (saved == null) throw new CustomException(AuthErrorCode.EMAIL_CODE_EXPIRED);
+
+        // 틀린 코드도 시도로 계산한다. 한도를 넘기면 코드를 폐기해 재발송을 강제하고,
+        // 재발송은 다시 쿨다운을 타므로 무차별 대입이 사실상 불가능해진다.
+        if (rateLimiter.exceedsVerifyAttempts(email)) {
+            store.delete(email);
+            throw new CustomException(AuthErrorCode.EMAIL_CODE_ATTEMPT_EXCEEDED);
+        }
         if (!saved.equals(code)) throw new CustomException(AuthErrorCode.EMAIL_CODE_NOT_MATCH);
 
         store.delete(email);
+        rateLimiter.resetVerifyAttempts(email);
 
         return userRepository.findByEmail(email)
                 .map(user -> {

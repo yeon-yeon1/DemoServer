@@ -15,6 +15,10 @@ public enum AuthErrorCode implements BaseCode {
     EMAIL_CODE_EXPIRED(HttpStatus.BAD_REQUEST, "AUTH-003", "인증 코드가 만료되었습니다."),
     EMAIL_CODE_NOT_MATCH(HttpStatus.BAD_REQUEST, "AUTH-004", "인증 코드가 일치하지 않습니다."),
     EMAIL_SEND_FAIL(HttpStatus.INTERNAL_SERVER_ERROR, "AUTH-005", "이메일 전송에 실패했습니다."),
+    EMAIL_SEND_COOLDOWN(HttpStatus.TOO_MANY_REQUESTS, "AUTH-006", "인증 코드를 다시 요청하려면 잠시 기다려 주세요."),
+    EMAIL_SEND_LIMIT_EXCEEDED(HttpStatus.TOO_MANY_REQUESTS, "AUTH-007", "인증 코드 요청 횟수를 초과했습니다. 잠시 후 다시 시도해 주세요."),
+    EMAIL_SEND_UNAVAILABLE(HttpStatus.SERVICE_UNAVAILABLE, "AUTH-008", "인증 메일 발송이 일시적으로 제한되었습니다. 잠시 후 다시 시도해 주세요."),
+    EMAIL_CODE_ATTEMPT_EXCEEDED(HttpStatus.TOO_MANY_REQUESTS, "AUTH-009", "인증 코드 입력 횟수를 초과했습니다. 코드를 다시 요청해 주세요."),
 
     // 인증 공통
     UNAUTHORIZED(HttpStatus.UNAUTHORIZED, "AUTH-100", "로그인이 필요합니다."),
